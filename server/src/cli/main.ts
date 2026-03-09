@@ -4,8 +4,9 @@ import dotenv from "dotenv";
 import chalk from "chalk";
 import figlet from "figlet";
 import { Command } from "commander";
-import { loginAction, logoutAction, whoamiAction } from "./commands/auth/login";
-import { wakeUpAction } from "./commands/ai-command/wake.command";
+import { loginAction, logoutAction, whoamiAction } from "./commands/auth/login.command";
+import { wakeUpAction } from "./commands/wakeup.command";
+
 
 dotenv.config();
 

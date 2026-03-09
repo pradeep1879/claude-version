@@ -1,13 +1,16 @@
 import { promises as fs } from "fs";
-import { CONFIG_DIR, TOKEN_FILE } from "../../../config/path";
 import chalk from "chalk";
+import { CONFIG_DIR, TOKEN_FILE } from "../config/path";
 
-type Token = {
+export type Token = {
   access_token: string;
   refresh_token?: string;
   expires_at?: string | null;
 };
 
+/**
+ * Reads stored CLI token
+ */
 export const getStoredToken = async (): Promise<Token | null> => {
   try {
     const data = await fs.readFile(TOKEN_FILE, "utf-8");
@@ -17,7 +20,14 @@ export const getStoredToken = async (): Promise<Token | null> => {
   }
 };
 
-export const storeToken = async (token: any) => {
+/**
+ * Stores OAuth token locally
+ */
+export const storeToken = async (token: {
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+}) => {
   await fs.mkdir(CONFIG_DIR, { recursive: true });
 
   const tokenData: Token = {
@@ -31,6 +41,9 @@ export const storeToken = async (token: any) => {
   await fs.writeFile(TOKEN_FILE, JSON.stringify(tokenData, null, 2));
 };
 
+/**
+ * Clears stored token
+ */
 export const clearStoredToken = async (): Promise<boolean> => {
   try {
     await fs.access(TOKEN_FILE);
@@ -41,7 +54,10 @@ export const clearStoredToken = async (): Promise<boolean> => {
   }
 };
 
-export const isTokenExpired = async () => {
+/**
+ * Checks if token expired
+ */
+export const isTokenExpired = async (): Promise<boolean> => {
   const token = await getStoredToken();
 
   if (!token || !token.expires_at) return true;
@@ -49,8 +65,10 @@ export const isTokenExpired = async () => {
   return new Date(token.expires_at).getTime() < Date.now();
 };
 
-
-export const requireAuth = async () => {
+/**
+ * Ensures CLI is authenticated
+ */
+export const requireAuth = async (): Promise<Token> => {
   const token = await getStoredToken();
 
   if (!token) {
@@ -62,7 +80,7 @@ export const requireAuth = async () => {
   const expired = await isTokenExpired();
 
   if (expired) {
-    console.log(chalk.yellow("⚠️  Session expired."));
+    console.log(chalk.yellow("⚠️ Session expired."));
     console.log(chalk.gray("Run: orbital login\n"));
     process.exit(1);
   }

@@ -1,12 +1,30 @@
 import yoctoSpinner from "yocto-spinner";
-import chalk from "chalk";
 
+type DeviceTokenResponse = {
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+};
+
+type AuthClient = {
+  device: {
+    token: (params: {
+      grant_type: string;
+      device_code: string;
+      client_id: string;
+    }) => Promise<{ data?: DeviceTokenResponse; error?: any }>;
+  };
+};
+
+/**
+ * Polls the OAuth device endpoint until authorization completes
+ */
 export async function pollForToken(
-  authClient: any,
+  authClient: AuthClient,
   deviceCode: string,
   clientId: string,
   interval: number
-) {
+): Promise<DeviceTokenResponse> {
   const spinner = yoctoSpinner({ text: "Waiting for authorization..." });
 
   return new Promise((resolve, reject) => {
@@ -28,7 +46,7 @@ export async function pollForToken(
           spinner.start();
         } else if (error?.error === "slow_down") {
           interval += 5;
-        } else {
+        } else if (error) {
           spinner.stop();
           reject(error);
           return;
