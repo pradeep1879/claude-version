@@ -1,14 +1,22 @@
 {
   "name": "server",
-  "module": "index.ts",
   "type": "module",
   "private": true,
+  "main": "dist/server.js",
   "bin": {
     "orbital": "./src/cli/main.ts"
   },
+  "scripts": {
+    "dev": "bun --watch src/server.ts",
+    "build": "bun build ./src/server.ts ./src/cli/main.ts --outdir dist --target bun",
+    "start": "bun run dist/server.js",
+    "cli": "bun run src/cli/main.ts",
+    "typecheck": "node ./node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
+  },
   "devDependencies": {
     "@types/bun": "latest",
-    "prisma": "^7.4.2"
+    "prisma": "^7.4.2",
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -24,6 +32,7 @@
     "better-auth": "^1.5.4",
     "boxen": "^8.0.1",
     "chalk": "^5.6.2",
+    "cli-highlight": "^2.1.11",
     "commander": "^14.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",

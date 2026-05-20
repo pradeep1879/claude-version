@@ -1,36 +1,34 @@
-import { multiselect, isCancel } from "@clack/prompts";
-import chalk from "chalk";
-import boxen from "boxen";
+import { isCancel, multiselect } from "@clack/prompts";
+import { renderSystemMessage, renderToolCalls } from "./message.ui";
 
 export async function selectToolsUI(
-  tools: { id: string; name: string; description: string }[]
+  tools: { id: string; name: string; description: string }[],
 ): Promise<string[]> {
   const selected = await multiselect({
-    message: chalk.cyan("Select tools to enable"),
-    options: tools.map((t) => ({
-      value: t.id,
-      label: t.name,
-      hint: t.description,
+    message: "Enable assistant tools",
+    options: tools.map((tool) => ({
+      value: tool.id,
+      label: tool.name,
+      hint: tool.description,
     })),
   });
 
   if (isCancel(selected)) {
-    console.log(chalk.yellow("Tool selection cancelled"));
+    renderSystemMessage("Tool selection cancelled.");
     process.exit(0);
   }
 
   const ids = selected as string[];
 
   if (ids.length === 0) {
-    console.log(chalk.yellow("No tools selected."));
+    renderSystemMessage("No tools selected. Continuing in pure chat mode.");
   } else {
-    console.log(
-      boxen(
-        chalk.green(
-          ids.map((id) => `• ${id}`).join("\n")
-        ),
-        { title: "Enabled Tools", borderStyle: "round" }
-      )
+    renderToolCalls(
+      ids.map((id) => ({
+        toolName: id,
+        args: { status: "enabled" },
+      })),
+      0,
     );
   }
 

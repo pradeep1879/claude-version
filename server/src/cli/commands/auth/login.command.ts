@@ -1,28 +1,17 @@
-import { intro, outro, confirm, isCancel, cancel } from "@clack/prompts";
+import { cancel, confirm, intro, isCancel, outro } from "@clack/prompts";
 import chalk from "chalk";
 import open from "open";
 import yoctoSpinner from "yocto-spinner";
-
-
-
-import {
-  clearStoredToken,
-  getStoredToken,
-  requireAuth,
-  storeToken,
-} from "../../../auth/token-store";
-import { prisma } from "../../../../prisma/db";
+import { getUserFromToken } from "../../../auth/auth.service";
 import { createClient } from "../../../auth/auth.client";
 import { pollForToken } from "../../../auth/auth.device-flow";
+import { clearStoredToken, getStoredToken, storeToken } from "../../../auth/token-store";
+import { env } from "../../../config/env";
+import { closeRedisConnection } from "../../../lib/redis";
 
+const SERVER_URL = env.serverUrl;
+const CLIENT_ID = env.githubClientId;
 
-
-const SERVER_URL = "http://localhost:3001";
-const CLIENT_ID = process.env.GITHUB_CLIENT_ID;
-
-/**
- * Login using OAuth device flow
- */
 export async function loginAction() {
   if (!CLIENT_ID) {
     console.error(chalk.red("Missing GITHUB_CLIENT_ID in environment"));
@@ -32,7 +21,6 @@ export async function loginAction() {
   intro(chalk.bold("🔐 Orbital CLI Login"));
 
   const authClient = createClient(SERVER_URL);
-
   const spinner = yoctoSpinner({
     text: "Requesting device authorization...",
   }).start();
@@ -60,13 +48,7 @@ export async function loginAction() {
     } = data;
 
     console.log(chalk.cyan("\nDevice Authorization Required\n"));
-
-    console.log(
-      `Visit: ${chalk.blue(
-        verification_uri_complete || verification_uri
-      )}`
-    );
-
+    console.log(`Visit: ${chalk.blue(verification_uri_complete || verification_uri)}`);
     console.log(`Code: ${chalk.green.bold(user_code)}\n`);
 
     const shouldOpen = await confirm({
@@ -74,7 +56,9 @@ export async function loginAction() {
       initialValue: true,
     });
 
-    if (isCancel(shouldOpen)) process.exit(0);
+    if (isCancel(shouldOpen)) {
+      process.exit(0);
+    }
 
     if (shouldOpen) {
       await open(verification_uri_complete || verification_uri);
@@ -82,22 +66,13 @@ export async function loginAction() {
 
     console.log(
       chalk.gray(
-        `Waiting for authorization (expires in ${Math.floor(
-          expires_in / 60
-        )} minutes)...\n`
-      )
+        `Waiting for authorization (expires in ${Math.floor(expires_in / 60)} minutes)...\n`,
+      ),
     );
 
-    const token = await pollForToken(
-      //@ts-ignore
-      authClient,
-      device_code,
-      CLIENT_ID,
-      interval ?? 5
-    );
+    const token = await pollForToken(authClient, device_code, CLIENT_ID, interval ?? 5);
 
     await storeToken(token);
-
     outro(chalk.green("Login successful!"));
   } catch (err) {
     spinner.stop();
@@ -106,9 +81,6 @@ export async function loginAction() {
   }
 }
 
-/**
- * Logout command
- */
 export async function logoutAction() {
   intro(chalk.bold("👋 Logout"));
 
@@ -133,44 +105,35 @@ export async function logoutAction() {
     const cleared = await clearStoredToken();
 
     if (cleared) {
-      outro(chalk.green("✅ Successfully logged out!"));
+      outro(chalk.green("Successfully logged out!"));
     } else {
-      console.log(chalk.yellow("⚠️ Could not clear token file."));
+      console.log(chalk.yellow("Could not clear token file."));
     }
   } catch (err) {
     console.error(chalk.red("Logout failed"), err);
   }
 }
 
-/**
- * Show current logged-in user
- */
 export async function whoamiAction() {
-  const token = await requireAuth();
-
   try {
-    const user = await prisma.user.findFirst({
-      where: {
-        sessions: {
-          some: { token: token.access_token },
-        },
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        image: true,
-      },
-    });
+    const user = await getUserFromToken();
+
+    if (!user) {
+      console.log(chalk.red("User not found"));
+      return;
+    }
 
     console.log(
       chalk.bold.greenBright(`
-👤 User: ${user?.name}
-📧 Email: ${user?.email}
-🆔 ID: ${user?.id}
-`)
+    User: ${user.name}
+    Email: ${user.email}
+    ID: ${user.id}
+    `),
     );
   } catch (err) {
     console.error(chalk.red("Failed to fetch user info"), err);
+  } finally {
+    await closeRedisConnection();
+    process.exit(0);
   }
 }

@@ -1,6 +1,7 @@
 import chalk from "chalk";
-import boxen from "boxen";
-import { intro, outro } from "@clack/prompts";
+import { env } from "../../config/env";
+import { renderAppBanner, renderSessionBanner } from "../components/status";
+import { renderSystemMessage } from "./message.ui";
 
 export interface ChatSessionInfo {
   title: string;
@@ -9,67 +10,42 @@ export interface ChatSessionInfo {
   tools?: string[];
 }
 
-export function showChatIntro() {
-  intro(
-    boxen(chalk.bold.cyan("Orbital AI Chat"), {
-      padding: 1,
-      borderStyle: "double",
-      borderColor: "cyan",
-    })
-  );
-}
+export const showChatIntro = () => {
+  console.log(renderAppBanner());
+};
 
-export function showConversationInfo(info: ChatSessionInfo) {
-  const toolsDisplay =
-    info.tools && info.tools.length > 0
-      ? `\n${chalk.gray("Active Tools:")} ${info.tools.join(", ")}`
-      : `\n${chalk.gray("No tools enabled")}`;
+export const showConversationInfo = (info: ChatSessionInfo) => {
+  const details = [
+    `${chalk.dim("Conversation")} ${chalk.white(info.title)}`,
+    `${chalk.dim("Mode")} ${chalk.white(info.mode)}`,
+    `${chalk.dim("Model")} ${chalk.white(env.googleModel)}`,
+    `${chalk.dim("Session")} ${chalk.white(info.id)}`,
+    `${chalk.dim("Tools")} ${chalk.white(info.tools && info.tools.length > 0 ? info.tools.join(", ") : "none")}`,
+  ];
 
-  const box = boxen(
-    `${chalk.bold("Conversation")}: ${info.title}
-${chalk.gray("ID: " + info.id)}
-${chalk.gray("Mode: " + info.mode)}${toolsDisplay}`,
-    {
-      padding: 1,
-      margin: { top: 1, bottom: 1 },
-      borderStyle: "round",
-      borderColor: "cyan",
-      title: "💬 Chat Session",
-      titleAlignment: "center",
-    }
-  );
-
-  console.log(box);
-}
-
-export function showHelp(tools: string[]) {
-  const helpBox = boxen(
-    `${chalk.gray("• Type your message and press Enter")}
-${chalk.gray("• AI tools available:")} ${
-      tools.length ? tools.join(", ") : "None"
-    }
-${chalk.gray("• Type 'exit' to end conversation")}
-${chalk.gray("• Press Ctrl+C to quit anytime")}`,
-    {
-      padding: 1,
-      margin: { bottom: 1 },
-      borderStyle: "round",
-      borderColor: "gray",
-      dimBorder: true,
-    }
-  );
-
-  console.log(helpBox);
-}
-
-export function showExit() {
   console.log(
-    boxen(chalk.yellow("Chat session ended. Goodbye! 👋"), {
-      padding: 1,
-      borderStyle: "round",
-      borderColor: "yellow",
-    })
+    renderSessionBanner({
+      title: "Ready for chat",
+      subtitle: "The renderer is upgraded, but the orchestration layer is unchanged.",
+      details,
+    }),
   );
+};
 
-  outro(chalk.green("Thanks for using Orbital AI"));
-}
+export const showHelp = (tools: string[]) => {
+  const toolSummary = tools.length > 0 ? tools.join(", ") : "none";
+
+  renderSystemMessage(
+    [
+      "Enter a prompt and press Enter to send.",
+      "Use /multiline then /send for multi-line input.",
+      "Use /help, /clear, or /exit at any time.",
+      `Active tools: ${toolSummary}.`,
+      "Use ↑ and ↓ to navigate prompt history.",
+    ].join("\n"),
+  );
+};
+
+export const showExit = () => {
+  renderSystemMessage("Session closed. Thanks for using Orbital.");
+};

@@ -1,90 +1,90 @@
-import { text, isCancel } from "@clack/prompts";
-import chalk from "chalk";
 import boxen from "boxen";
-
-
-import { ChatService } from "../../core/chat/chat.service";
-
-import { renderUserMessage, renderAssistantMessage } from "../ui/message.ui";
-import {
-  showChatIntro,
-  showConversationInfo,
-  showHelp,
-  showExit,
-} from "../ui/chat.ui";
+import chalk from "chalk";
+import { requireUserFromToken } from "../../auth/get-user-from-token";
 import { requireAuth } from "../../auth/token-store";
-import { prisma } from "../../../prisma/db";
-import { ChatController } from "../../core/chat/chat.controller";
-import { getUserFromToken } from "../../auth/get-user-from-token";
-
-
-
+import { sendMessage } from "../../modules/ai/ai.service";
+import {
+  createConversation,
+  createMessage,
+  formatMessagesForAI,
+  getMessages,
+} from "../../modules/chat/chat.service";
+import { createPromptSession } from "../prompts/chat.prompt";
+import { showChatIntro, showConversationInfo, showExit, showHelp } from "../ui/chat.ui";
+import {
+  renderUserMessage,
+  streamAssistantChunk,
+  streamAssistantEnd,
+  streamAssistantStart,
+} from "../ui/message.ui";
 
 export async function startChat() {
+  const prompt = createPromptSession();
+
   try {
-    // Intro UI
     showChatIntro();
 
-    // Auth check
-    const token = await requireAuth();
+    await requireAuth();
 
-    const chatService = new ChatService();
-    const controller = new ChatController();
+    const user = await requireUserFromToken();
+    const conversation = await createConversation(user.id, "chat");
 
-    const user = await getUserFromToken()
-    if (!user) {
-      throw new Error("User not found")
-    }
-    // Create conversation
-    const conversation = await chatService.createConversation(
-      user?.id,
-      "chat"
-    );
-
-    // Show conversation info
     showConversationInfo({
-      //@ts-ignore
-      title: conversation.title,
+      title: conversation.title ?? "New conversation",
       id: conversation.id,
       mode: conversation.mode,
       tools: [],
     });
 
-    // Show help UI
     showHelp([]);
 
     while (true) {
-      const input = await text({
-        message: "💬 Your message",
-        placeholder: "Ask something...",
-      });
+      const input = await prompt.read();
 
-      if (isCancel(input)) {
-        showExit();
-        process.exit(0);
+      if (input.kind === "empty") {
+        continue;
       }
 
-      if (typeof input !== "string") continue;
+      if (input.kind === "command" && input.value === "help") {
+        showHelp([]);
+        continue;
+      }
 
-      if (input.toLowerCase() === "exit") {
+      if (input.kind === "command" && input.value === "clear") {
+        console.clear();
+        showConversationInfo({
+          title: conversation.title ?? "New conversation",
+          id: conversation.id,
+          mode: conversation.mode,
+          tools: [],
+        });
+        continue;
+      }
+
+      if (input.kind === "command" && input.value === "exit") {
         showExit();
         break;
       }
 
-      // Render user message
-      renderUserMessage(input);
+      if (input.kind !== "message") {
+        continue;
+      }
 
-      // Save message
-      await chatService.createMessage(conversation.id, "user", input);
+      renderUserMessage(input.value);
+      await createMessage(conversation.id, "user", input.value);
 
-      // Get AI response
-      const response = await controller.processMessage(conversation.id);
+      const dbMessages = await getMessages(conversation.id);
+      const aiMessages = formatMessagesForAI(dbMessages);
+      let response = "";
 
-      // Save assistant message
-      await chatService.createMessage(conversation.id, "assistant", response);
+      streamAssistantStart();
+      const result = await sendMessage(aiMessages, (chunk) => {
+        response += chunk;
+        streamAssistantChunk(chunk);
+      });
+      streamAssistantEnd(response);
 
-      // Render assistant response
-      renderAssistantMessage(response);
+      await createMessage(conversation.id, "assistant", response);
     }
   } catch (error: any) {
     console.log(
@@ -92,9 +92,11 @@ export async function startChat() {
         padding: 1,
         borderColor: "red",
         borderStyle: "round",
-      })
+      }),
     );
 
     process.exit(1);
+  } finally {
+    prompt.close();
   }
 }

@@ -25,5 +25,13 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
-  }
+  },
+  "include": [
+    "index.ts",
+    "prisma.config.ts",
+    "prisma/**/*.ts",
+    "generated/prisma/**/*.ts",
+    "src/**/*.ts"
+  ],
+  "exclude": ["dist", "node_modules"]
 }

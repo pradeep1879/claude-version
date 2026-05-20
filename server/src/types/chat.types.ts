@@ -21,16 +21,3 @@ export interface AIMessage {
   role: "user" | "assistant" | "system";
   content: string;
 }
-
-
-
-
-export interface ChatMessage {
-  role: MessageRole;
-  content: string;
-}
-
-export interface ToolCall {
-  toolName: string;
-  args: Record<string, unknown>;
-}

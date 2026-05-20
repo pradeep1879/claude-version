@@ -1,26 +1,14 @@
 #!/usr/bin/env bun
 
-import dotenv from "dotenv";
 import chalk from "chalk";
-import figlet from "figlet";
 import { Command } from "commander";
 import { loginAction, logoutAction, whoamiAction } from "./commands/auth/login.command";
 import { wakeUpAction } from "./commands/wakeup.command";
-
-
-dotenv.config();
+import { renderAppBanner } from "./components/status";
 
 async function main() {
-  console.log(
-    chalk.cyan(
-      figlet.textSync("Orbital CLI", {
-        font: "Standard",
-        horizontalLayout: "default",
-      })
-    )
-  );
-
-  console.log(chalk.gray("A CLI based AI Tool\n"));
+  console.log(renderAppBanner());
+  console.log(chalk.dim("A premium terminal workspace for Orbital.\n"));
 
   const program = new Command("orbital");
 

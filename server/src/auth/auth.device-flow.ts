@@ -1,3 +1,4 @@
+import type { createClient } from "./auth.client";
 import yoctoSpinner from "yocto-spinner";
 
 type DeviceTokenResponse = {
@@ -6,14 +7,13 @@ type DeviceTokenResponse = {
   expires_in?: number;
 };
 
-type AuthClient = {
-  device: {
-    token: (params: {
-      grant_type: string;
-      device_code: string;
-      client_id: string;
-    }) => Promise<{ data?: DeviceTokenResponse; error?: any }>;
-  };
+type AuthClient = ReturnType<typeof createClient>;
+type DeviceTokenResult = {
+  data?: DeviceTokenResponse | null;
+  error?: {
+    error?: string;
+    error_description?: string;
+  } | null;
 };
 
 /**
@@ -30,11 +30,13 @@ export async function pollForToken(
   return new Promise((resolve, reject) => {
     const poll = async () => {
       try {
-        const { data, error } = await authClient.device.token({
+        const result = (await authClient.device.token({
           grant_type: "urn:ietf:params:oauth:grant-type:device_code",
           device_code: deviceCode,
           client_id: clientId,
-        });
+        })) as DeviceTokenResult;
+        const data = result.data ?? undefined;
+        const error = result.error ?? undefined;
 
         if (data?.access_token) {
           spinner.stop();

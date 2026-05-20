@@ -1,16 +1,11 @@
 import chalk from "chalk";
 import { select } from "@clack/prompts";
 import yoctoSpinner from "yocto-spinner";
-
-
-
-
-import { startChat } from "./chat.command";
-
-import { prisma } from "../../../prisma/db";
-import { startToolChat } from "./tool.command";
+import { requireUserFromToken } from "../../auth/get-user-from-token";
 import { getStoredToken } from "../../auth/token-store";
-
+import { renderErrorMessage, renderSystemMessage } from "../ui/message.ui";
+import { startChat } from "./chat.command";
+import { startToolChat } from "./tool.command";
 
 export const wakeUpAction = async () => {
   const token = await getStoredToken();
@@ -19,31 +14,16 @@ export const wakeUpAction = async () => {
     throw new Error(chalk.red("You are not authenticated. Please login first"));
   }
 
-  const spinner = yoctoSpinner({ text: "Fetching user information..." });
+  const spinner = yoctoSpinner({ text: "Preparing your workspace..." });
 
   spinner.start();
 
   try {
-    const user = await prisma.user.findFirst({
-      where: {
-        sessions: {
-          some: { token: token.access_token },
-        },
-      },
-      select: {
-        id: true,
-        name: true,
-        image: true,
-      },
-    });
-
-    if (!user) {
-      throw new Error(chalk.red("User not found"));
-    }
+    const user = await requireUserFromToken();
 
     spinner.stop();
 
-    console.log(chalk.green(`Welcome back, ${user.name}!`));
+    renderSystemMessage(`Welcome back, ${user.name}. Choose a mode to continue.`);
 
     const choice = await select({
       message: "Select an option",
@@ -51,17 +31,17 @@ export const wakeUpAction = async () => {
         {
           value: "chat",
           label: "Chat",
-          hint: "Simple chat with AI",
+          hint: "Simple conversation with premium streaming UI",
         },
         {
           value: "tool",
           label: "Tool Calling",
-          hint: "Chat with tools (Google Search, Code Execution)",
+          hint: "Chat with tools and structured tool execution cards",
         },
         {
           value: "agent",
           label: "Agentic Mode",
-          hint: "Advanced AI agent (Coming soon...)",
+          hint: "Reserved for the next phase",
         },
       ],
     });
@@ -76,10 +56,11 @@ export const wakeUpAction = async () => {
         break;
 
       case "agent":
-        console.log(chalk.yellow("Agent mode coming soon..."));
+        renderSystemMessage("Agent mode is not wired yet, but the UI is ready for it.");
         break;
     }
   } catch (error) {
-    console.error(chalk.red("Error while waking up:"), error);
+    spinner.stop();
+    renderErrorMessage(`Error while waking up: ${(error as Error).message}`);
   }
 };

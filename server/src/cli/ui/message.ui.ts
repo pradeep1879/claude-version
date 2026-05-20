@@ -1,72 +1,82 @@
-import chalk from "chalk"
-import boxen from "boxen"
-import { marked } from "marked"
-//@ts-ignore
-import { markedTerminal } from "marked-terminal"
+import type { ToolCall } from "../../types/chat.types";
+import {
+  renderAssistantBubble,
+  renderErrorBubble,
+  renderSystemNotice,
+  renderToolCallSummary,
+  renderToolResultSummary,
+  renderUserBubble,
+} from "../components/message";
+import {
+  createAssistantStreamRenderer,
+} from "../streaming/assistant-stream";
 
-/**
- * Configure markdown renderer for terminal
- */
-marked.use(
-  markedTerminal({
-    code: chalk.cyan,
-    blockquote: chalk.gray.italic,
-    heading: chalk.green.bold,
-    firstHeading: chalk.magenta.bold,
-    strong: chalk.bold,
-    em: chalk.italic,
-    codespan: chalk.yellow.bgBlack,
-    link: chalk.blue.underline
-  })
-)
+type AssistantStream = ReturnType<typeof createAssistantStreamRenderer>;
 
-/**
- * Render user message
- */
-export function renderUserMessage(message: string) {
-  console.log(
-    boxen(chalk.white(message), {
-      padding: 1,
-      margin: { left: 2, top: 1, bottom: 1 },
-      borderStyle: "round",
-      borderColor: "blue",
-      title: "👤 You",
-      titleAlignment: "left"
-    })
-  )
-}
+let assistantStream: AssistantStream | null = null;
+let streamInitialized = false;
 
-/**
- * Render assistant message (formatted markdown)
- */
-export function renderAssistantMessage(message: string) {
-  const rendered = marked.parse(message)
+export const renderUserMessage = (message: string) => {
+  console.log(renderUserBubble(message));
+};
 
-  console.log(
-    //@ts-ignore
-    boxen(rendered.trim(), {
-      padding: 1,
-      margin: { left: 2, bottom: 1 },
-      borderStyle: "round",
-      borderColor: "green",
-      title: "🤖 Assistant",
-      titleAlignment: "left"
-    })
-  )
-}
+export const renderAssistantMessage = (message: string, meta?: string[]) => {
+  console.log(renderAssistantBubble(message, meta));
+};
 
-/**
- * Streaming AI response
- */
-export function streamAssistantStart() {
-  console.log("\n" + chalk.green.bold("🤖 Assistant"))
-  console.log(chalk.gray("─".repeat(60)))
-}
+export const renderSystemMessage = (message: string) => {
+  console.log(renderSystemNotice(message));
+};
 
-export function streamAssistantChunk(chunk: string) {
-  process.stdout.write(chalk.white(chunk))
-}
+export const renderErrorMessage = (message: string) => {
+  console.log(renderErrorBubble(message));
+};
 
-export function streamAssistantEnd() {
-  console.log("\n" + chalk.gray("─".repeat(60)) + "\n")
-}
+export const renderToolCalls = (toolCalls: ToolCall[], durationMs: number) => {
+  const output = renderToolCallSummary(toolCalls, durationMs);
+
+  if (output) {
+    console.log(output);
+  }
+};
+
+export const renderToolResults = (toolResults: unknown[], durationMs: number) => {
+  const output = renderToolResultSummary(toolResults, durationMs);
+
+  if (output) {
+    console.log(output);
+  }
+};
+
+export const streamAssistantStart = () => {
+  assistantStream = createAssistantStreamRenderer();
+  streamInitialized = true;
+};
+
+export const streamAssistantChunk = (chunk: string) => {
+  if (!streamInitialized) {
+    streamAssistantStart();
+  }
+
+  assistantStream?.push(chunk);
+};
+
+export const streamAssistantEnd = (message: string) => {
+  if (!streamInitialized) {
+    return;
+  }
+
+  assistantStream?.complete(message);
+  assistantStream = null;
+  streamInitialized = false;
+};
+
+export const streamAssistantFail = (message?: string) => {
+  if (!streamInitialized) {
+    return;
+  }
+
+  assistantStream?.fail(message);
+  assistantStream = null;
+  streamInitialized = false;
+};

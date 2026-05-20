@@ -1,207 +1,139 @@
 import chalk from "chalk";
-import boxen from "boxen";
-import { text, isCancel } from "@clack/prompts";
-import yoctoSpinner from "yocto-spinner";
-
-import { ChatService } from "../../core/chat/chat.service";
-import { AIService } from "../../core/ai/ai.service";
-
-import { ToolManager } from "../../core/tools/tool.manager";
-
-
-import { renderUserMessage, renderAssistantMessage, streamAssistantChunk, streamAssistantEnd, streamAssistantStart } from "../ui/message.ui";
-import { showChatIntro, showConversationInfo, showHelp, showExit } from "../ui/chat.ui";
-
-import { prisma } from "../../../prisma/db";
+import { requireUserFromToken } from "../../auth/get-user-from-token";
+import { sendMessage } from "../../modules/ai/ai.service";
+import {
+  createConversation,
+  createMessage,
+  formatMessagesForAI,
+  getMessages,
+} from "../../modules/chat/chat.service";
+import { availableTools } from "../../modules/tools/tools.registry";
+import {
+  enableTools,
+  getEnabledToolNames,
+  getEnabledTools,
+  resetTools,
+} from "../../modules/tools/tool-state";
 import type { ToolCall } from "../../types/chat.types";
+import { createPromptSession } from "../prompts/chat.prompt";
+import { showChatIntro, showConversationInfo, showExit, showHelp } from "../ui/chat.ui";
+import {
+  renderErrorMessage,
+  renderSystemMessage,
+  renderToolCalls,
+  renderToolResults,
+  renderUserMessage,
+  streamAssistantChunk,
+  streamAssistantEnd,
+  streamAssistantFail,
+  streamAssistantStart,
+} from "../ui/message.ui";
 import { selectToolsUI } from "../ui/tool.ui";
-import { availableTools } from "../../core/tools/tools.registry";
-import { getStoredToken } from "../../auth/token-store";
 
+export const getAIResponse = async (conversationId: string): Promise<string> => {
+  const dbMessages = await getMessages(conversationId);
+  const aiMessages = formatMessagesForAI(dbMessages);
+  const tools = getEnabledTools();
+  let fullResponse = "";
+  const toolCalls: ToolCall[] = [];
+  const startedAt = Date.now();
 
+  streamAssistantStart();
 
-const chatService = new ChatService();
-const aiService = new AIService();
-
-async function getUserId(): Promise<string> {
-  const token = await getStoredToken();
-
-  if (!token?.access_token) {
-    throw new Error("Not authenticated. Please login first.");
-  }
-
-  const user = await prisma.user.findFirst({
-    where: {
-      sessions: {
-        some: { token: token.access_token },
-      },
-    },
-    select: { id: true },
-  });
-
-  if (!user) {
-    throw new Error("User not found");
-  }
-
-  return user.id;
-}
-
-export async function getAIResponse(conversationId: string): Promise<string> {
-
-  const spinner = yoctoSpinner({ text: "AI thinking..." }).start()
-
-  // 1️⃣ Load conversation history
-  const dbMessages = await chatService.getMessages(conversationId)
-  const aiMessages = chatService.formatMessageForAI(dbMessages)
-
-  // 2️⃣ Load enabled tools
-  const tools = ToolManager.getEnabledTools()
-
-  let fullResponse = ""
-  let firstChunk = true
-
-  const toolCalls: ToolCall[] = []
-
-  // 3️⃣ Call LLM
-  const result = await aiService.sendMessage(
+  const result = await sendMessage(
     aiMessages,
     (chunk) => {
-
-      if (firstChunk) {
-        spinner.stop()
-        streamAssistantStart()
-        firstChunk = false
-      }
-
-      streamAssistantChunk(chunk)
-      fullResponse += chunk
-
+      fullResponse += chunk;
+      streamAssistantChunk(chunk);
     },
-    tools
-  )
+    tools,
+  );
 
-  streamAssistantEnd()
+  streamAssistantEnd(fullResponse);
 
-  // 4️⃣ Collect tool calls
-  if (Array.isArray(result.steps)) {
-    for (const step of result.steps) {
-      if (step.toolCalls) {
-        toolCalls.push(...step.toolCalls as ToolCall[])
+  for (const step of result.steps) {
+    if (Array.isArray(step.toolCalls)) {
+      toolCalls.push(...(step.toolCalls as ToolCall[]));
+    }
+  }
+
+  const durationMs = Date.now() - startedAt;
+  renderToolCalls(toolCalls, durationMs);
+  renderToolResults(result.toolResults, durationMs);
+
+  return fullResponse;
+};
+
+const chatLoop = async (conversationId: string) => {
+  const prompt = createPromptSession();
+  showHelp(getEnabledToolNames());
+
+  try {
+    while (true) {
+      const input = await prompt.read();
+
+      if (input.kind === "empty") {
+        continue;
+      }
+
+      if (input.kind === "command" && input.value === "help") {
+        showHelp(getEnabledToolNames());
+        continue;
+      }
+
+      if (input.kind === "command" && input.value === "clear") {
+        console.clear();
+        renderSystemMessage("Screen cleared. Conversation state is preserved.");
+        continue;
+      }
+
+      if (input.kind === "command" && input.value === "exit") {
+        showExit();
+        break;
+      }
+
+      if (input.kind !== "message") {
+        continue;
+      }
+
+      renderUserMessage(input.value);
+      await createMessage(conversationId, "user", input.value);
+
+      try {
+        const response = await getAIResponse(conversationId);
+        await createMessage(conversationId, "assistant", response);
+      } catch (error) {
+        streamAssistantFail();
+        throw error;
       }
     }
+  } finally {
+    prompt.close();
   }
+};
 
-  // 5️⃣ Show tool calls
-  if (toolCalls.length > 0) {
-    console.log("\n")
-
-    console.log(
-      boxen(
-        toolCalls
-          .map(t =>
-            `${chalk.cyan("🔧 Tool:")} ${t.toolName}\n${chalk.gray(JSON.stringify(t.args, null, 2))}`
-          )
-          .join("\n\n"),
-        {
-          title: "Tool Calls",
-          borderStyle: "round",
-          borderColor: "cyan",
-          padding: 1
-        }
-      )
-    )
-  }
-
-  // 6️⃣ Show tool results
-  if (result.toolResults?.length) {
-
-    console.log(
-      boxen(
-        result.toolResults
-          .map(tr =>
-            //@ts-ignore
-            `${chalk.green("✅ Tool:")} ${tr.toolName}\n${chalk.gray(JSON.stringify(tr.result).slice(0,200))}`
-          )
-          .join("\n\n"),
-        {
-          title: "Tool Results",
-          borderStyle: "round",
-          borderColor: "green",
-          padding: 1
-        }
-      )
-    )
-
-  }
-
-  return fullResponse
-}
-
-async function chatLoop(conversationId: string) {
-  showHelp(ToolManager.getEnabledToolNames());
-
-  while (true) {
-    const input = await text({
-      message: "💬 Your message",
-      placeholder: "Ask something...",
-    });
-
-    if (isCancel(input)) {
-      showExit();
-      process.exit(0);
-    }
-
-    if (typeof input !== "string") continue;
-
-    if (input.toLowerCase() === "exit") {
-      showExit();
-      break;
-    }
-
-    renderUserMessage(input);
-
-    await chatService.createMessage(conversationId, "user", input);
-
-    const response = await getAIResponse(conversationId);
-
-    await chatService.createMessage(conversationId, "assistant", response);
-  }
-}
-
-
-
-
-export async function startToolChat() {
+export const startToolChat = async () => {
   try {
     showChatIntro();
 
-    const userId = await getUserId();
-
+    const user = await requireUserFromToken();
     const selectedTools = await selectToolsUI(availableTools);
 
-    ToolManager.enableTools(selectedTools);
+    enableTools(selectedTools);
 
-    const conversation = await chatService.createConversation(userId, "tool");
+    const conversation = await createConversation(user.id, "tool");
 
     showConversationInfo({
-      //@ts-ignore
-      title: conversation.title,
+      title: conversation.title ?? "New conversation",
       id: conversation.id,
       mode: conversation.mode,
-      tools: ToolManager.getEnabledToolNames(),
+      tools: getEnabledToolNames(),
     });
 
     await chatLoop(conversation.id);
-
-    ToolManager.resetTools();
+    resetTools();
   } catch (error) {
-    console.error(
-      boxen(chalk.red(`Error: ${(error as Error).message}`), {
-        borderStyle: "round",
-        borderColor: "red",
-      })
-    );
-
+    renderErrorMessage(`Error: ${(error as Error).message}`);
     process.exit(1);
   }
-}
+};
